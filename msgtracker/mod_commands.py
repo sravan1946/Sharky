@@ -87,8 +87,6 @@ class ModCommands:
         if not self.counted_message:
             return await ctx.send("No messages tracked.")
 
-        list_words = []
-
         guild = guild or ctx.guild
 
         try:
@@ -104,16 +102,17 @@ class ModCommands:
         except AttributeError:
             return await ctx.send("Sorry, there's currently no messages for that.")
 
-        for userid, counter in sorting_list:
-            list_words.append("{} {} messages".format(userid, counter["message"]))
-
+        list_words = [
+            f'{userid} {counter["message"]} messages'
+            for userid, counter in sorting_list
+        ]
         if not list_words:
             return False
 
         message_to_user = "Leaderboard:"
 
         for msg in list_words:
-            message_to_user += "\n\t- {}".format(msg)
+            message_to_user += f"\n\t- {msg}"
 
         for page in pagify(message_to_user):
             await ctx.send(box(page))
@@ -136,7 +135,7 @@ class ModCommands:
         """
         await self.config.member(member).counter.set(points)
         await ctx.send(
-            "Done. {} now has {} total messages counted.".format(member.mention, points)
+            f"Done. {member.mention} now has {points} total messages counted."
         )
 
     @admin_control.command()
@@ -146,17 +145,19 @@ class ModCommands:
 
         Will ask for confirmation if you want to do this.
         """
-        await ctx.send("Are you sure you want to delete {}'s record?".format(member.display_name))
+        await ctx.send(
+            f"Are you sure you want to delete {member.display_name}'s record?"
+        )
 
         confirm, message = await self._return_yes_or_no(ctx)
 
-        if not confirm and message is not None:
-            return False
+        if not confirm:
+            if message is not None:
+                return False
 
-        if not confirm and message is None:
-            return await ctx.send("Okay, won't delete {}'s record.".format(member.display_name))
+            return await ctx.send(f"Okay, won't delete {member.display_name}'s record.")
         await self.config.member(member).clear()
-        await ctx.send("Done. Removed {}'s history".format(member.display_name))
+        await ctx.send(f"Done. Removed {member.display_name}'s history")
 
     @admin_control.command()
     async def resetguild(self, ctx):
@@ -168,10 +169,10 @@ class ModCommands:
         await ctx.send("Are you sure you want to delete the server's record?")
         confirm, message = await self._return_yes_or_no(ctx)
 
-        if not confirm and message is not None:
-            return False
+        if not confirm:
+            if message is not None:
+                return False
 
-        if not confirm and message is None:
             return await ctx.send("Okay, won't delete the server's record.")
 
         await self.config.clear_all_members(ctx.guild)
