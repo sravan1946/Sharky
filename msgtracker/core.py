@@ -1,51 +1,45 @@
 import asyncio
+import contextlib
 import datetime
 from math import ceil
-from typing import Awaitable, Literal
+from typing import Literal
 
 import discord
 from discord.ext import tasks
-from redbot.core import Config, checks, commands
-from redbot.core.utils.chat_formatting import box, humanize_number, pagify
+from redbot.core import Config, commands
+from redbot.core.bot import Red
+from redbot.core.utils.chat_formatting import box, humanize_number
 from redbot.core.utils.menus import DEFAULT_CONTROLS, close_menu, menu
-from redbot.core.utils.mod import is_mod_or_superior
 from redbot.core.utils.predicates import MessagePredicate
 
 from .mod_commands import ModCommands
 
-# from redbot.core.i18n import Translator, cog_i18n
-
-
-BASECOG = getattr(commands, "Cog", object)
 
 GUILD_CONFIG = {
     "ignored_channels": [],
     "ignored_users": [],
     "enabled_system": False,
     "ignore_staff": False,
+    "allowed_channels": [],
+    "allowed_users": [],
+    "blacklist_mode": True,
 }
 
 GLOBAL_CONFIG = {"disable_block_commands": False}
 
 MEMBER_CONFIG = {"counter": 0}
 
-# @cog_i18n(_)
-
-
-# TODO
-# # Look into red_data_deletions
-
 
 def customcheck():
     async def is_config_active(ctx: commands.Context):
         config = ctx.bot.get_cog("MsgTracker").config
         enable_config = await config.disable_block_commands()
-        return True if not enable_config else False
+        return not enable_config
 
     return commands.check(is_config_active)
 
 
-class MsgTracker(BASECOG, ModCommands):
+class MsgTracker(commands.Cog, ModCommands):
     """
     Tracks how many messages people send.
 
@@ -55,7 +49,7 @@ class MsgTracker(BASECOG, ModCommands):
     __author__ = ["SharkyTheKing"]
     __version__ = "1.0.3"
 
-    def __init__(self, bot):
+    def __init__(self, bot: Red):
         self.bot = bot
         self.counted_message = {}
         self.config = Config.get_conf(self, identifier=252140347403141120, force_registration=True)
@@ -96,10 +90,7 @@ class MsgTracker(BASECOG, ModCommands):
         except asyncio.TimeoutError:
             return False, await ctx.send("Took to long to reply, canceling process.")
 
-        if confirm_yes_no.result is False:
-            return False, None
-
-        return True, None
+        return (False, None) if confirm_yes_no.result is False else (True, None)
 
     @commands.guild_only()
     @commands.command()
@@ -163,12 +154,11 @@ class MsgTracker(BASECOG, ModCommands):
                 pound_len=pound_len + 2,
             )
 
-            pos = 1
             embed_message = embed_header
             embed = discord.Embed()
             embed.title = f"{ctx.guild.name}'s top 10 members"
 
-            for user_id, counter in top_10:
+            for pos, (user_id, counter) in enumerate(top_10, start=1):
                 user = ctx.guild.get_member(user_id).display_name
                 if user is None:
                     user = user_id
@@ -177,7 +167,6 @@ class MsgTracker(BASECOG, ModCommands):
                     f"{f'{pos}.': <{pound_len+2}} "
                     f"{humanize_number(counter['counter']): <{top_message_len + 6}} {user}\n"
                 )
-                pos += 1
             embed.description = box(embed_message, lang="md")
 
         await ctx.send(embed=embed)
@@ -197,7 +186,10 @@ class MsgTracker(BASECOG, ModCommands):
             user = ctx.author
 
         count = await self.config.member(user).counter()
-        embed = discord.Embed(color=discord.Color.random(), timestamp=datetime.datetime.utcnow())
+        embed = discord.Embed(
+            color=discord.Color.random(),
+            timestamp=datetime.datetime.now(datetime.timezone.utc),
+        )
         embed.title = "Messages"
         embed.description = "{user} has {count} messages".format(
             user=user.display_name, count=humanize_number(count)
@@ -213,7 +205,7 @@ class MsgTracker(BASECOG, ModCommands):
 
         [Credit to Core Economy](https://github.com/Cog-Creators/Red-DiscordBot/blob/dc68bc5d373c69aa1307ecef8118da14379ac67a/redbot/cogs/economy/economy.py#L545-L663)
         """
-        try:
+        with contextlib.suppress(KeyError):
             self.counted_message[ctx.guild.id]
             update_config = await self.update_guild_config_from_cache(
                 ctx.guild
@@ -222,8 +214,6 @@ class MsgTracker(BASECOG, ModCommands):
 
             if update_config is False:
                 return await ctx.send("Something happened with updating. Please try again.")
-        except KeyError:  # If it fails to have anything, we may assume that no messages have been sent.
-            pass
         config_info = await self.config.all_members(ctx.guild)
 
         if not config_info:
@@ -236,7 +226,6 @@ class MsgTracker(BASECOG, ModCommands):
             # Even if it's turned off, we should still allow it to be shown.
 
         async with ctx.typing():
-
             sorting_list = sorted(config_info.items(), key=lambda x: x[1]["counter"], reverse=True)
 
             pound_len = len(str(len(sorting_list)))
@@ -256,11 +245,10 @@ class MsgTracker(BASECOG, ModCommands):
                 title="{guild}'s leaderboard".format(guild=ctx.guild.name), description=""
             )
             embed_list = []
-            pos = 1
             new_embed = base.copy()
             embed_message = embed_header
 
-            for user_id, counter in sorting_list:
+            for pos, (user_id, counter) in enumerate(sorting_list, start=1):
                 user = ctx.guild.get_member(user_id).display_name
                 if user is None:
                     user = user_id
@@ -287,8 +275,6 @@ class MsgTracker(BASECOG, ModCommands):
                     )
                     embed_list.append(new_embed)
                     embed_message = embed_header
-
-                pos += 1
 
             if embed_message != embed_header:
                 new_embed = base.copy()
@@ -341,11 +327,8 @@ class MsgTracker(BASECOG, ModCommands):
                 except discord.NotFound:
                     get_non_member_config = self.config.member_from_ids(guild.id, userid)
                     await get_non_member_config.clear()
-                    try:
+                    with contextlib.suppress(KeyError):
                         del self.counted_message[guild.id][userid]
-                    except KeyError:
-                        pass
-
                     continue
 
             current_points = self.config.member(member).counter
@@ -370,10 +353,8 @@ class MsgTracker(BASECOG, ModCommands):
                     except discord.NotFound:
                         member_from_config = self.config.member_from_ids(guild_ob.id, user)
                         await member_from_config.clear()
-                        try:
+                        with contextlib.suppress(KeyError):
                             del self.counted_message[guild][user]
-                        except KeyError:
-                            pass
 
     async def update_config_from_cache(self):
         if not self.counted_message:  # No point attempting all of this if cache is nothing
@@ -381,11 +362,7 @@ class MsgTracker(BASECOG, ModCommands):
 
         cache = self.counted_message
         guilds = await self.config.all_guilds()
-        list_of_ids = []
-        for guild in guilds:
-            if guilds[guild]["enabled_system"]:
-                list_of_ids.append(guild)
-
+        list_of_ids = [guild for guild in guilds if guilds[guild]["enabled_system"]]
         for guild_id in list_of_ids:
             guild = self.bot.get_guild(guild_id)  # something errored out here
             if not guild:
@@ -410,11 +387,8 @@ class MsgTracker(BASECOG, ModCommands):
                     except discord.NotFound:
                         get_non_member_config = self.config.member_from_ids(guild.id, userid)
                         await get_non_member_config.clear()
-                        try:
+                        with contextlib.suppress(KeyError):
                             del self.counted_message[guild.id][userid]
-                        except KeyError:
-                            pass
-
                         continue
 
                 current_points = self.config.member(member).counter
@@ -443,20 +417,32 @@ class MsgTracker(BASECOG, ModCommands):
         if message.author.id in config_data["ignored_users"]:
             return False
 
-        if message.channel.id in config_data["ignored_channels"]:
+        if (config_data["ignore_staff"] is True 
+            and await self.bot.is_mod_or_superior(message.author)):
             return False
 
-        if config_data["ignore_staff"] is True:
-            if await self.bot.is_mod_or_superior(message.author):
+        if config_data["blacklist_mode"]:
+            if message.channel.id in config_data["ignored_channels"]:
                 return False
 
-        try:
-            self.counted_message[message.guild.id]
-        except KeyError:
-            self.counted_message.update({message.guild.id: {message.author.id: {"message": 1}}})
-            return  # to prevent double message recording
+            try:
+                self.counted_message[message.guild.id]
+            except KeyError:
+                self.counted_message.update({message.guild.id: {message.author.id: {"message": 1}}})
+                return  # to prevent double message recording
 
-        try:
-            self.counted_message[message.guild.id][message.author.id]["message"] += 1
-        except KeyError:
-            self.counted_message[message.guild.id].update({message.author.id: {"message": 1}})
+            try:
+                self.counted_message[message.guild.id][message.author.id]["message"] += 1
+            except KeyError:
+                self.counted_message[message.guild.id].update({message.author.id: {"message": 1}})
+        elif message.channel.id in config_data["allowed_channels"]:
+            try:
+                self.counted_message[message.guild.id]
+            except KeyError:
+                self.counted_message.update({message.guild.id: {message.author.id: {"message": 1}}})
+                return  # to prevent double message recording
+
+            try:
+                self.counted_message[message.guild.id][message.author.id]["message"] += 1
+            except KeyError:
+                self.counted_message[message.guild.id].update({message.author.id: {"message": 1}})

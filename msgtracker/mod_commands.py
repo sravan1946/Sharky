@@ -220,20 +220,15 @@ class ModCommands:
                 if user.id not in blocked_user:
                     blocked_user.append(user.id)
                     status = "Added"
-                    status_list.append("{} {}".format(user.mention, status))
                 else:
                     blocked_user.remove(user.id)
                     status = "Removed"
-                    status_list.append("{} {}".format(user.mention, status))
-
-        status_message = ""
+                status_list.append(f"{user.mention} {status}")
         if not status_list:
             return await ctx.send("Uh oh...Something happened. Unable to process user(s)")
 
-        for status in status_list:
-            status_message += "{}\n".format(status)
-
-        message = "New status for listed users:\n{}".format(status_message)
+        status_message = "".join(f"{status}\n" for status in status_list)
+        message = f"New status for listed users:\n{status_message}"
 
         for page in pagify(message):
             await ctx.send(page)
@@ -257,19 +252,14 @@ class ModCommands:
                 if channel.id not in chan:
                     chan.append(channel.id)
                     status = "Added"
-                    status_list.append("{} {}".format(channel.mention, status))
                 else:
                     chan.remove(channel.id)
                     status = "Removed"
-                    status_list.append("{} {}".format(channel.mention, status))
-
-        status_message = ""
+                status_list.append(f"{channel.mention} {status}")
         if not status_list:
             return await ctx.send("Uh oh...Something happened. Unable to process channel(s)\n")
-        for stat in status_list:
-            status_message += "{}\n".format(stat)
-
-        msg = "New status for listed channels:\n{}".format(status_message)
+        status_message = "".join(f"{stat}\n" for stat in status_list)
+        msg = f"New status for listed channels:\n{status_message}"
         for page in pagify(msg):
             await ctx.send(page)
 
@@ -284,13 +274,60 @@ class ModCommands:
         if ignore_staffs is False:
             await self.config.guild(ctx.guild).ignore_staff.set(True)
             return await ctx.send(
-                "Will now ignore staff members, as assigned by the bot in `{}set.`".format(
-                    ctx.prefix
-                )
+                f"Will now ignore staff members, as assigned by the bot in `{ctx.prefix}set.`"
             )
         else:
             await self.config.guild(ctx.guild).ignore_staff.set(False)
             return await ctx.send("Will now listen to staff members.")
+
+    @messagecounter_settings.group(name="allow")
+    async def allow_group_setting(self, ctx):
+        """
+        Ignore users / channels from message tracking.
+        """
+        ...
+
+    @allow_group_setting.command(name="channel", usage="<channel>")
+    async def allow_channel_tracking(
+        self, ctx, channels: commands.Greedy[discord.TextChannel] = None
+    ):
+        """
+        This will allow/unallow a channel from message tracking.
+
+        If a channel is added to the list, type it again to remove it.
+        """
+        if channels is None:
+            return await ctx.send_help()
+        status = "Error"
+        status_list = []
+
+        async with self.config.guild(ctx.guild).allowed_channels() as chan:
+            for channel in channels:
+                if channel.id not in chan:
+                    chan.append(channel.id)
+                    status = "Added"
+                else:
+                    chan.remove(channel.id)
+                    status = "Removed"
+                status_list.append(f"{channel.mention} {status}")
+        if not status_list:
+            return await ctx.send("Uh oh...Something happened. Unable to process channel(s)\n")
+        status_message = "".join(f"{stat}\n" for stat in status_list)
+        msg = f"New status for listed channels:\n{status_message}"
+        for page in pagify(msg):
+            await ctx.send(page)
+
+    @messagecounter_settings.command(name="mode")
+    async def set_mode(self, ctx, mode: bool):
+        """Set the tracking mode as whitelist or blacklist.
+        mode (bool): True for blacklist, Flask for whitelist.
+        """
+        if mode:
+            await self.config.guild(ctx.guild).blacklist_mode.set(True)
+            await ctx.send("Set mode to blacklist.")
+        else:
+            await ctx.config.guild(ctx.guild).blacklist_mode.set(False)
+            await ctx.send("Set mode to whitelist.")
 
     @messagecounter_settings.command(
         name="showsettings", aliases=["showsetting", "ss", "list"], usage=""
@@ -306,7 +343,7 @@ class ModCommands:
         block_info = await self.config.disable_block_commands()
         embed = discord.Embed()
         embed.set_thumbnail(url=ctx.guild.icon_url)
-        embed.title = "{}'s Guild Settings".format(ctx.guild.name)
+        embed.title = f"{ctx.guild.name}'s Guild Settings"
 
         embed.add_field(
             name="System:", value="is Enabled" if guild_config["enabled_system"] else "is Disabled"
@@ -320,6 +357,10 @@ class ModCommands:
             if block_info is False
             else "Users can not disallow the bot from tracking.",
             inline=False,
+        )
+        embed.add_field(
+            name="Blacklist Mode:",
+            value=guild_config["blacklist_mode"]
         )
 
         await ctx.send(embed=embed)
@@ -342,12 +383,12 @@ class ModCommands:
             message = "User on ignorelist:"
 
         for user in ignore_config:
-            message += "\n\t- {}".format(user)
+            message += f"\n\t- {user}"
 
         for page in pagify(message):
             await ctx.send(box(page))
 
-    @messagecounter_settings.command(name="channellist", usage="")
+    @messagecounter_settings.command(name="ignoredchannellist", usage="")
     async def display_ignoredchannel(self, ctx):
         """
         Displays channels that are being ignored from tracking.
@@ -365,7 +406,30 @@ class ModCommands:
             message = "Channel on ignorelist:"
 
         for channel in ignore_channels:
-            message += "\n\t- {}".format(channel)
+            message += f"\n\t- {channel}"
+
+        for page in pagify(message):
+            await ctx.send(box(page))
+
+    @messagecounter_settings.command(name="allowedchannellist", usage="")
+    async def display_allowedchannel(self, ctx):
+        """
+        Displays channels that are being ignored from tracking.
+
+        [Thank you Core Red](https://github.com/Cog-Creators/Red-DiscordBot/blob/e24379973cc4373a20a528543d21b1194e788800/redbot/core/core_commands.py#L2880-L2898)
+        """
+        allowed_channels = await self.config.guild(ctx.guild).allowed_channels()
+
+        if not allowed_channels:
+            return await ctx.send("No channels are being ignored.")
+
+        if len(allowed_channels) > 1:
+            message = "Channels on ignorelist:"
+        else:
+            message = "Channel on ignorelist:"
+
+        for channel in allowed_channels:
+            message += f"\n\t- {channel}"
 
         for page in pagify(message):
             await ctx.send(box(page))
