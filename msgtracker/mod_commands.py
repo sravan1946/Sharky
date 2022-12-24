@@ -336,8 +336,9 @@ class ModCommands:
         """
         Display guild specific settings.
 
-        This will not display blocked users, please use `[p]mtset ignorelist`.
-        This will not display ignored channels, please use `[p]mtset channellist`.
+        This will not display blocked users, please use `[p]mtset userlist`.
+        This will not display ignored channels, please use `[p]mtset ignoredchannellist`.
+        This will not display allowed channels, please use `[p]mtset allowedchannellist`.
         """
         guild_config = await self.config.guild(ctx.guild).all()
         block_info = await self.config.disable_block_commands()
