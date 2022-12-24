@@ -326,7 +326,7 @@ class ModCommands:
             await self.config.guild(ctx.guild).blacklist_mode.set(True)
             await ctx.send("Set mode to blacklist.")
         else:
-            await ctx.config.guild(ctx.guild).blacklist_mode.set(False)
+            await self.config.guild(ctx.guild).blacklist_mode.set(False)
             await ctx.send("Set mode to whitelist.")
 
     @messagecounter_settings.command(
